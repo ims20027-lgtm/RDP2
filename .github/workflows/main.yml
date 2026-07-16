@@ -5,7 +5,7 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2019  # Changed from windows-latest to target Windows 10 environment
+    runs-on: windows-latest  # Changed from windows-latest to target Windows 10 environment
     timeout-minutes: 3600
 
     steps:
