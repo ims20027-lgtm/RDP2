@@ -9,22 +9,17 @@ jobs:
     timeout-minutes: 3600
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # -------------------------------------------------------------
-      # CACHE STEP: Downloads existing files at start & uploads at end
-      # -------------------------------------------------------------
+      # Cache folder to persist files between workflow runs
       - name: Cache Session Data
         uses: actions/cache@v4
         with:
-          # Specifies the path inside your GitHub runner workspace to persist
           path: saved-data
-          # The key identifies this specific cache store
-          key: rdp-session-data
-          # If key is missing, restore from the last available key with this prefix
+          key: rdp-session-data-${{ github.run_id }}
           restore-keys: |
-            rdp-session-data
+            rdp-session-data-
 
       - name: Configure Core RDP Settings
         run: |
@@ -42,7 +37,8 @@ jobs:
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          echo "RDP_CREDS=User: RDP | Password: $password" >> $env:GITHUB_ENV
+          
+          Add-Content -Path $env:GITHUB_ENV -Value "RDP_PASS=$password"
 
       - name: Install Tailscale
         run: |
@@ -55,6 +51,7 @@ jobs:
       - name: Establish Tailscale Connection
         run: |
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
@@ -62,24 +59,44 @@ jobs:
               Start-Sleep -Seconds 5
               $retries++
           }
-          if (-not $tsIP) { exit 1 }
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP not assigned. Exiting."
+              exit 1
+          }
+          
+          Add-Content -Path $env:GITHUB_ENV -Value "TAILSCALE_IP=$tsIP"
 
-      - name: Maintain Connection
+      - name: Verify RDP Accessibility
         run: |
-          # Create folder in workspace if it doesn't exist yet
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          
+          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+              Write-Error "TCP connection to RDP port 3389 failed"
+              exit 1
+          }
+          Write-Host "TCP connectivity successful!"
+
+      # THIS STEP FINISHES INSTANTLY -> AUTO-EXPANDS IN GITHUB LOGS
+      - name: Display Connection Info
+        run: |
           if (-not (Test-Path -Path "saved-data")) {
               New-Item -ItemType Directory -Path "saved-data"
           }
 
-          Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
-          Write-Host "Save files to: C:\actions-runner\_work\<repo>\<repo>\saved-data"
-          Write-Host "==================`n"
+          Write-Host "`n=================================================="
+          Write-Host "                RDP ACCESS INFO                   "
+          Write-Host "=================================================="
+          Write-Host "  Address:           $env:TAILSCALE_IP"
+          Write-Host "  Username:          RDP"
+          Write-Host "  Password:          $env:RDP_PASS"
+          Write-Host "  Persisted Folder:  $env:GITHUB_WORKSPACE\saved-data"
+          Write-Host "==================================================`n"
 
+      - name: Keep Runner Alive
+        run: |
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active - Keep files in 'saved-data' to persist across runs"
+              Write-Host "[$(Get-Date)] Session Active"
               Start-Sleep -Seconds 300
           }
