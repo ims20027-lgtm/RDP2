@@ -12,14 +12,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Cache folder to persist files between workflow runs
+      # Ensure saved-data folder exists immediately
+      - name: Prepare Folder
+        run: |
+          if (-not (Test-Path -Path "saved-data")) {
+              New-Item -ItemType Directory -Path "saved-data"
+          }
+
+      # -------------------------------------------------------------
+      # RESTORE & SAVE CACHE
+      # Uses a fallback pattern to guarantee the newest saved-data is pulled
+      # -------------------------------------------------------------
       - name: Cache Session Data
         uses: actions/cache@v4
         with:
           path: saved-data
-          key: rdp-session-data-${{ github.run_id }}
+          key: rdp-data-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            rdp-session-data-
+            rdp-data-${{ runner.os }}-
 
       - name: Configure Core RDP Settings
         run: |
@@ -78,13 +88,8 @@ jobs:
           }
           Write-Host "TCP connectivity successful!"
 
-      # THIS STEP FINISHES INSTANTLY -> AUTO-EXPANDS IN GITHUB LOGS
       - name: Display Connection Info
         run: |
-          if (-not (Test-Path -Path "saved-data")) {
-              New-Item -ItemType Directory -Path "saved-data"
-          }
-
           Write-Host "`n=================================================="
           Write-Host "                RDP ACCESS INFO                   "
           Write-Host "=================================================="
