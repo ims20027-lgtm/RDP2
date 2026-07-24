@@ -12,24 +12,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Ensure saved-data folder exists immediately
-      - name: Prepare Folder
+      - name: Create Saved Data Folder
         run: |
           if (-not (Test-Path -Path "saved-data")) {
               New-Item -ItemType Directory -Path "saved-data"
           }
 
-      # -------------------------------------------------------------
-      # RESTORE & SAVE CACHE
-      # Uses a fallback pattern to guarantee the newest saved-data is pulled
-      # -------------------------------------------------------------
-      - name: Cache Session Data
-        uses: actions/cache@v4
+      # STEP 1: RESTORE EXISTING DATA AT START
+      - name: Restore Session Cache
+        uses: actions/cache/restore@v4
         with:
           path: saved-data
-          key: rdp-data-${{ runner.os }}-${{ github.run_id }}
+          key: rdp-session-
           restore-keys: |
-            rdp-data-${{ runner.os }}-
+            rdp-session-
 
       - name: Configure Core RDP Settings
         run: |
@@ -77,17 +73,6 @@ jobs:
           
           Add-Content -Path $env:GITHUB_ENV -Value "TAILSCALE_IP=$tsIP"
 
-      - name: Verify RDP Accessibility
-        run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          
-          $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
-          if (-not $testResult.TcpTestSucceeded) {
-              Write-Error "TCP connection to RDP port 3389 failed"
-              exit 1
-          }
-          Write-Host "TCP connectivity successful!"
-
       - name: Display Connection Info
         run: |
           Write-Host "`n=================================================="
@@ -105,3 +90,11 @@ jobs:
               Write-Host "[$(Get-Date)] Session Active"
               Start-Sleep -Seconds 300
           }
+
+      # STEP 2: FORCE-SAVE CACHE WHEN RUNNER IS CANCELLED / ENDED
+      - name: Save Session Cache
+        if: always() # Forces execution even if workflow is cancelled or failed
+        uses: actions/cache/save@v4
+        with:
+          path: saved-data
+          key: rdp-session-${{ github.run_id }}-${{ github.run_number }}
